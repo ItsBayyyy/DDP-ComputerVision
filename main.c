@@ -624,7 +624,7 @@ int main(int argc, char *argv[]) {
 
     animate_ascii_scan(img_data, w, h);
 
-    printf("\n" C_BOLD "=== ASTRAL SYSTEM V4 SIAP (" C_GREEN "ONLINE" C_RESET C_BOLD ") ===" C_RESET "\n");
+    printf("\n" C_BOLD "=== ASTRAL AI SIAP (" C_GREEN "ONLINE" C_RESET C_BOLD ") ===" C_RESET "\n");
     printf("Deteksi Awal  : " C_MAGENTA "%s" C_RESET "\n", SCENE_NAMES[current_scene]);
     printf("Status Sensor : %d objek teridentifikasi.\n\n", kb_count);
     printf(C_CYAN "Tips: Coba tanyakan 'Ada berapa benda merah?' atau 'Jelaskan gambar ini'.\n" C_RESET);
@@ -668,7 +668,7 @@ int main(int argc, char *argv[]) {
                 break;
 
             case INT_IDENTITY:
-                sprintf(response, "Perkenalkan, saya adalah Astral (Visual Intelligence V3). Saya dilengkapi algoritma Iterative Flood Fill dan Naive Bayes untuk memahami gambar dan bahasamu.");
+                sprintf(response, "Perkenalkan, saya adalah Astral. Saya dilengkapi algoritma Iterative Flood Fill dan Naive Bayes untuk memahami gambar dan bahasamu.");
                 break;
 
             case INT_COUNT:
