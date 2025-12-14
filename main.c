@@ -5,6 +5,7 @@
 #include <ctype.h>
 #include <limits.h>
 #include <time.h>
+#include <conio.h> 
 
 /* ================= KONFIGURASI SISTEM ================= */
 typedef struct {
@@ -23,6 +24,7 @@ void sleep_ms(int ms) { Sleep(ms); }
 
 #define C_RESET  "\x1b[0m"
 #define C_BOLD   "\x1b[1m"
+#define C_DIM    "\x1b[2m"
 #define C_RED    "\x1b[31m"
 #define C_GREEN  "\x1b[32m"
 #define C_YELLOW "\x1b[33m"
@@ -41,6 +43,103 @@ void enable_ansi_support() {
 
 void gotoxy(int x, int y) {
     printf("\x1b[%d;%dH", y, x);
+}
+
+void clear_screen() {
+    printf("\x1b[2J\x1b[H");
+}
+
+/* ================= FITUR VISUAL (Konsep User) ================= */
+void animate_crt_off() {
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &csbi);
+    int h = csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
+    int w = csbi.srWindow.Right - csbi.srWindow.Left + 1;
+
+    for (int i = 0; i < h / 2; i++) {
+        gotoxy(1, i);
+        for(int x=0; x<w; x++) putchar(' '); 
+        gotoxy(1, h - i);
+        for(int x=0; x<w; x++) putchar(' '); 
+        sleep_ms(10);
+    }
+
+    gotoxy(1, h/2);
+    for(int i=0; i<w; i++) putchar('-'); 
+    sleep_ms(100);
+    
+    for(int i = 0; i < w/2; i++) {
+        gotoxy(1+i, h/2); putchar(' ');
+        gotoxy(w-i, h/2); putchar(' ');
+        sleep_ms(5);
+    }
+    
+    gotoxy(w/2, h/2); printf(C_WHITE "*" C_RESET);
+    sleep_ms(200);
+    gotoxy(w/2, h/2); printf(" ");
+    sleep_ms(200);
+    clear_screen();
+}
+
+void print_glitch(const char *text) {
+    int len = strlen(text);
+    char chars[] = "!@#$%^&*()_+-=[]{}|;':,./<>?";
+    
+    printf(C_RED);
+    for(int i=0; i<len; i++) {
+        if(rand() % 5 == 0) {
+            putchar(chars[rand() % (sizeof(chars)-1)]);
+            fflush(stdout);
+            sleep_ms(rand() % 50);
+            printf("\b"); 
+        }
+        putchar(text[i]);
+        fflush(stdout);
+        sleep_ms(15 + (rand() % 20)); 
+    }
+    printf(C_RESET "\n");
+}
+
+void animate_hex_dump() {
+    printf(C_DIM C_GREEN);
+    for(int i=0; i<8; i++) { 
+        printf("0x%08X  ", rand() * rand());
+        for(int j=0; j<8; j++) {
+            printf("%02X ", rand() % 256);
+        }
+        printf(" |");
+        for(int j=0; j<8; j++) {
+            char c = (rand() % 94) + 32;
+            putchar(c);
+        }
+        printf("|\n");
+        sleep_ms(20); 
+    }
+    printf(C_RESET "Analysis Complete.\n");
+    sleep_ms(200);
+}
+
+void get_confidence_bar(float conf, char *buffer) {
+    int bars = 10;
+    int filled = (int)(conf * bars);
+    
+    char color[16];
+    if(conf > 0.8) strcpy(color, C_GREEN);
+    else if(conf > 0.5) strcpy(color, C_YELLOW);
+    else strcpy(color, C_RED);
+    
+    strcpy(buffer, color);
+    strcat(buffer, "[");
+    for(int i=0; i<bars; i++) {
+        if(i < filled) strcat(buffer, "|");
+        else strcat(buffer, " ");
+    }
+    strcat(buffer, "] ");
+    
+    char percent[16];
+    sprintf(percent, "%.0f%%", conf * 100);
+    strcat(buffer, percent);
+    strcat(buffer, C_RESET);
 }
 
 void print_typing(const char *prefix, const char *text) {
@@ -101,6 +200,7 @@ int BOX_COLORS[COLOR_COUNT][3] = {{255,0,0}, {0,255,0}, {0,0,255}, {255,255,0}};
 
 typedef enum { SIZE_SMALL, SIZE_MEDIUM, SIZE_LARGE, SIZE_COUNT } SizeCategory;
 const char *SIZE_NAMES[] = {"Kecil", "Sedang", "Besar"};
+char SIZE_SYMBOLS[] = {'.', 'o', 'O'};
 
 typedef struct {
     int id;
@@ -123,10 +223,48 @@ typedef struct {
 
 FeatureVector img_features;
 
+int img_width_g, img_height_g;
+
 typedef enum { SCENE_LANDSCAPE, SCENE_DOCUMENT, SCENE_ILLUSTRATION, SCENE_MIXED } SceneType;
 const char *SCENE_NAMES[] = {"Pemandangan Alam", "Dokumen/Teks", "Ilustrasi", "Campuran"};
 SceneType current_scene = SCENE_MIXED;
 char scene_reason[128];
+
+/* ================= FITUR VISUAL RADAR ================= */
+void draw_radar(ColorEnum target_color) {
+    int rw = 40; 
+    int rh = 12; 
+    char grid[12][41];
+
+    for(int y=0; y<rh; y++) {
+        for(int x=0; x<rw; x++) grid[y][x] = ' ';
+        grid[y][rw] = '\0';
+    }
+
+    for(int x=0; x<rw; x++) { grid[0][x] = '-'; grid[rh-1][x] = '-'; }
+    for(int y=0; y<rh; y++) { grid[y][0] = '|'; grid[y][rw-1] = '|'; }
+    grid[0][0]='+'; grid[0][rw-1]='+'; grid[rh-1][0]='+'; grid[rh-1][rw-1]='+';
+
+    int found_count = 0;
+    for(int i=0; i<kb_count; i++) {
+        if(kb_objects[i].color == target_color) {
+            int rx = 1 + (kb_objects[i].cx * (rw - 3)) / img_width_g;
+            int ry = 1 + (kb_objects[i].cy * (rh - 3)) / img_height_g;
+            
+            if(rx < 1) rx = 1; if(rx > rw-2) rx = rw-2;
+            if(ry < 1) ry = 1; if(ry > rh-2) ry = rh-2;
+
+            grid[ry][rx] = SIZE_SYMBOLS[kb_objects[i].size_cat]; 
+            found_count++;
+        }
+    }
+
+    printf(C_CYAN "\n   [ RADAR VISUAL: %s ]\n" C_RESET, COLOR_NAMES[target_color]);
+    for(int y=0; y<rh; y++) {
+        printf("   %s%s%s\n", COLOR_ANSI[target_color], grid[y], C_RESET);
+    }
+    printf("   Legenda: (.)Kecil (o)Sedang (O)Besar\n\n");
+}
 
 /* ================= COMPUTER VISION CORE ================= */
 #define MAX(a,b) ((a)>(b)?(a):(b))
@@ -231,7 +369,7 @@ void flood_fill_iterative(int *mask, int *labels, int w, int h, int start_x, int
 
 const char *ASCII_CHARS = " .:-=+*#%@";
 
-void animate_ascii_scan(unsigned char *img, int w, int h) {
+void animate_ascii_scan(unsigned char *img, int w, int h, int skip_intro) {
     int console_w = 80;
     int scale_x = w / console_w;
     if (scale_x < 1) scale_x = 1;
@@ -239,14 +377,15 @@ void animate_ascii_scan(unsigned char *img, int w, int h) {
 
     int console_h = h / scale_y;
     
-    printf("\n" C_BOLD C_CYAN "=== MEMULAI VISUALISASI DIGITAL ===" C_RESET "\n");
-    sleep_ms(500);
-
-    printf("\x1b[2J\x1b[H"); 
+    if(!skip_intro) {
+        printf("\n" C_BOLD C_CYAN "=== MEMULAI VISUALISASI DIGITAL ===" C_RESET "\n");
+        sleep_ms(500);
+        printf("\x1b[2J\x1b[H"); 
+    }
     
     int start_row = 2; 
-    
-    int line_delay = (console_h > 0) ? (5000 / console_h) : 10;
+    int line_delay = (console_h > 0) ? (3000 / console_h) : 10;
+    if(skip_intro) line_delay = 5; 
     
     for (int y = 0; y < console_h; y++) {
         gotoxy(1, start_row + y); 
@@ -278,52 +417,49 @@ void animate_ascii_scan(unsigned char *img, int w, int h) {
     gotoxy(console_w + 2, start_row + console_h - 1);
     printf("              ");
 
-    gotoxy(1, start_row + console_h + 2);
-    printf(C_YELLOW "Mengidentifikasi Objek..." C_RESET);
-    sleep_ms(1000);
+    if(!skip_intro) {
+        gotoxy(1, start_row + console_h + 2);
+        printf(C_YELLOW "Mengidentifikasi Objek..." C_RESET);
+        sleep_ms(1000);
 
-    for (int i = 0; i < kb_count; i++) {
-        int cx_console = kb_objects[i].cx / scale_x;
-        int cy_console = kb_objects[i].cy / scale_y;
-        
-        int x1 = kb_objects[i].min_x / scale_x;
-        int x2 = kb_objects[i].max_x / scale_x;
-        int y1 = kb_objects[i].min_y / scale_y;
-        int y2 = kb_objects[i].max_y / scale_y;
+        for (int i = 0; i < kb_count; i++) {
+            int cx_console = kb_objects[i].cx / scale_x;
+            int cy_console = kb_objects[i].cy / scale_y;
+            
+            int draw_y = start_row + cy_console;
+            int draw_x = cx_console;
+            
+            const char *col_code = COLOR_ANSI[kb_objects[i].color];
+            
+            gotoxy(draw_x, draw_y);
+            printf("%s[%d]" C_RESET, col_code, i+1);
 
-        if (x1 < 0) x1=0; if(x2 >= console_w) x2=console_w-1;
-        
-        int draw_y = start_row + cy_console;
-        int draw_x = cx_console;
-        
-        const char *col_code = COLOR_ANSI[kb_objects[i].color];
-        
-        gotoxy(draw_x, draw_y);
-        printf("%s[%d]" C_RESET, col_code, i+1);
+            gotoxy(1, start_row + console_h + 1);
+            printf(C_CYAN "> Deteksi ID #%d: %s (%s) di grid [%d,%d]   " C_RESET, 
+                i+1, COLOR_NAMES[kb_objects[i].color], SIZE_NAMES[kb_objects[i].size_cat], cx_console, cy_console);
+            
+            sleep_ms(200); 
+        }
 
-        gotoxy(1, start_row + console_h + 1);
-        printf(C_CYAN "> Deteksi ID #%d: %s (%s) di grid [%d,%d]   " C_RESET, 
-               i+1, COLOR_NAMES[kb_objects[i].color], SIZE_NAMES[kb_objects[i].size_cat], cx_console, cy_console);
-        
-        sleep_ms(600); 
+        gotoxy(1, start_row + console_h + 3);
+        printf(C_GREEN "Visualisasi Selesai." C_RESET "\n");
+        sleep_ms(1000);
     }
-
-    gotoxy(1, start_row + console_h + 3);
-    printf(C_GREEN "Visualisasi Selesai." C_RESET "\n");
-    sleep_ms(1000);
 }
 
-/* ================= VISUALIZATION UTILS ================= */
-void set_pixel_safe(unsigned char *img, int w, int h, int x, int y, int r, int g, int b, int thickness) {
-    for(int ty = -thickness/2; ty <= thickness/2; ty++) {
-        for(int tx = -thickness/2; tx <= thickness/2; tx++) {
-            int ny = y + ty;
-            int nx = x + tx;
+void set_pixel_safe(unsigned char *img, int w, int h, int x, int y, int r, int g, int b, int thick) {
+    int start = -thick / 2;
+    int end = (thick + 1) / 2;
+    
+    for(int dy = start; dy < end; dy++) {
+        for(int dx = start; dx < end; dx++) {
+            int nx = x + dx;
+            int ny = y + dy;
             if(nx >= 0 && nx < w && ny >= 0 && ny < h) {
                 int idx = (ny * w + nx) * 3;
-                img[idx] = r;
-                img[idx+1] = g;
-                img[idx+2] = b;
+                img[idx] = (unsigned char)r;
+                img[idx+1] = (unsigned char)g;
+                img[idx+2] = (unsigned char)b;
             }
         }
     }
@@ -418,7 +554,8 @@ void classify_scene() {
 /* ================= NLU ENGINE ================= */
 typedef enum { 
     INT_UNKNOWN, INT_COUNT, INT_WHERE, INT_DESCRIBE, INT_STATS, INT_SCENE,
-    INT_GREETING, INT_IDENTITY 
+    INT_GREETING, INT_IDENTITY, 
+    INT_HELP, INT_TIME, INT_SCAN, INT_EXIT 
 } IntentType;
 
 typedef struct {
@@ -444,6 +581,10 @@ const char *VOCAB_DESC[]  = {"jelaskan", "deskripsi", "apa", "gambar", "ceritaka
 const char *VOCAB_STATS[] = {"statistik", "data", "persen", "luas", "area", "info"};
 const char *VOCAB_GREET[] = {"halo", "hi", "test", "pagi", "siang", "sore", "malam", "woi", "hai"};
 const char *VOCAB_IDENT[] = {"siapa", "kamu", "nama", "bot", "program", "sistem"};
+const char *VOCAB_HELP[]  = {"bantuan", "help", "tolong", "menu", "perintah", "cmd", "panduan"};
+const char *VOCAB_TIME[]  = {"jam", "waktu", "tanggal", "status", "uptime"};
+const char *VOCAB_SCAN[]  = {"scan", "pindai", "ulangi", "refresh", "cek", "lihat"};
+const char *VOCAB_EXIT[]  = {"exit", "keluar", "bye", "tutup", "quit", "selesai"};
 
 float calculate_bayes_score(char *input, const char **vocab, int vocab_size) {
     float matches = 0.0f;
@@ -491,6 +632,10 @@ NLUResult process_input(char *raw_input) {
     float score_stats = calculate_bayes_score(input, VOCAB_STATS, 6);
     float score_greet = calculate_bayes_score(input, VOCAB_GREET, 9);
     float score_ident = calculate_bayes_score(input, VOCAB_IDENT, 6);
+    float score_help  = calculate_bayes_score(input, VOCAB_HELP, 7);
+    float score_time  = calculate_bayes_score(input, VOCAB_TIME, 5);
+    float score_scan  = calculate_bayes_score(input, VOCAB_SCAN, 6);
+    float score_exit  = calculate_bayes_score(input, VOCAB_EXIT, 6);
 
     float max_score = 0;
     IntentType detected = INT_UNKNOWN;
@@ -501,6 +646,10 @@ NLUResult process_input(char *raw_input) {
     if(score_stats > max_score) { max_score = score_stats; detected = INT_STATS; }
     if(score_greet > max_score) { max_score = score_greet; detected = INT_GREETING; }
     if(score_ident > max_score) { max_score = score_ident; detected = INT_IDENTITY; }
+    if(score_help > max_score)  { max_score = score_help;  detected = INT_HELP; }
+    if(score_time > max_score)  { max_score = score_time;  detected = INT_TIME; }
+    if(score_scan > max_score)  { max_score = score_scan;  detected = INT_SCAN; }
+    if(score_exit > max_score)  { max_score = score_exit;  detected = INT_EXIT; }
     
     if(strstr(input, "klasifikasi") || strstr(input, "tipe")) { detected = INT_SCENE; max_score = 0.9f; }
 
@@ -511,7 +660,7 @@ NLUResult process_input(char *raw_input) {
         if(detected == INT_COUNT) strcpy(res.suggestion, "menghitung jumlah objek");
         else if(detected == INT_WHERE) strcpy(res.suggestion, "mencari lokasi/posisi");
         else if(detected == INT_STATS) strcpy(res.suggestion, "melihat statistik");
-        else if(detected == INT_GREETING) strcpy(res.suggestion, "menyapa saya");
+        else if(detected == INT_HELP)  strcpy(res.suggestion, "melihat menu bantuan");
     }
 
     if(res.entity_color != COLOR_UNKNOWN) user_session.last_color = res.entity_color;
@@ -557,6 +706,7 @@ int main(int argc, char *argv[]) {
     if(!fp) { printf(C_RED "Gagal membuka file. Pastikan path benar!\n"); return 1; }
     char header[3]; int w, h, max_val;
     fscanf(fp, "%s %d %d %d", header, &w, &h, &max_val);
+    img_width_g = w; img_height_g = h; 
     
     unsigned char *img_data = malloc(w*h*3);
     if(strcmp(header, "P6")==0) { fgetc(fp); fread(img_data, 1, w*h*3, fp); }
@@ -622,54 +772,124 @@ int main(int argc, char *argv[]) {
         draw_bounding_boxes(img_data, w, h);
     }
 
-    animate_ascii_scan(img_data, w, h);
+    animate_ascii_scan(img_data, w, h, 0);
 
     printf("\n" C_BOLD "=== ASTRAL AI SIAP (" C_GREEN "ONLINE" C_RESET C_BOLD ") ===" C_RESET "\n");
     printf("Deteksi Awal  : " C_MAGENTA "%s" C_RESET "\n", SCENE_NAMES[current_scene]);
-    printf("Status Sensor : %d objek teridentifikasi.\n\n", kb_count);
-    printf(C_CYAN "Tips: Coba tanyakan 'Ada berapa benda merah?' atau 'Jelaskan gambar ini'.\n" C_RESET);
+    printf("Status Sensor : %d objek teridentifikasi.\n", kb_count);
+    printf("Ketik " C_YELLOW "'bantuan'" C_RESET " untuk melihat perintah.\n\n");
 
     char input[256];
     char temp_msg[512];
+    char conf_bar[64];
     
     while(1) {
         printf("\n" C_BOLD "Kamu > " C_RESET);
         if(!fgets(input, 256, stdin)) break;
         input[strcspn(input, "\n")] = 0;
-        if(strcmp(input, "exit")==0 || strcmp(input, "keluar")==0) break;
-
+        
         NLUResult intent = process_input(input);
+        
+        if(intent.type == INT_EXIT) {
+            int r = rand() % 3;
+            if(r==0) printf(C_YELLOW "Astral > Shutting down systems..." C_RESET "\n");
+            else if(r==1) printf(C_YELLOW "Astral > Menyimpan sesi dan keluar..." C_RESET "\n");
+            else printf(C_YELLOW "Astral > Bye. Sensor offline." C_RESET "\n");
+            sleep_ms(500);
+            animate_crt_off();
+            break;
+        }
+        
+        if(intent.type == INT_UNKNOWN && intent.confidence < 0.3) {
+             print_glitch("ERROR: UNKNOWN INTENT DETECTED... PARSING FAILED.");
+        }
+        
+        if(intent.type == INT_SCENE || intent.type == INT_DESCRIBE) {
+            animate_hex_dump();
+        }
+
+        get_confidence_bar(intent.confidence, conf_bar);
+        printf(C_DIM "Confidence: %s" C_RESET "\n", conf_bar);
 
         if(intent.confidence < sys_config.confidence_threshold) {
             if (strlen(intent.suggestion) > 0) {
-                 int rnd = rand() % 2;
-                 if(rnd == 0) sprintf(temp_msg, "Hmm, sinyal kurang jelas. Maksud kamu ingin %s? (Ketik ulang jika ya)\n", intent.suggestion);
-                 else         sprintf(temp_msg, "Saya menebak kamu ingin %s, benar tidak? Coba perjelas lagi.\n", intent.suggestion);
+                 int rnd_conf = rand() % 4;
+                 switch(rnd_conf) {
+                     case 0:
+                        sprintf(temp_msg, "Sinyal input terdistorsi noise. Apakah Anda bermaksud %s?\n", intent.suggestion);
+                        break;
+                     case 1:
+                        sprintf(temp_msg, "Maaf, modul bahasa saya agak ragu. Maksud perintah tadi %s bukan?\n", intent.suggestion);
+                        break;
+                     case 2:
+                        sprintf(temp_msg, "Hmm, data tidak lengkap. Namun pola algoritmanya mirip dengan %s. Benarkah?\n", intent.suggestion);
+                        break;
+                     case 3:
+                        sprintf(temp_msg, "Input samar-samar. Mencoba menebak... apakah arahnya ke %s?\n", intent.suggestion);
+                        break;
+                 }
                  print_typing(C_YELLOW "Astral > " C_RESET, temp_msg);
                  continue;
             } else {
-                 int rnd = rand() % 3;
-                 if(rnd == 0) print_typing(C_RED "Astral > " C_RESET, "Maaf, sirkuit bahasa saya belum mengenali kalimat itu. Coba tanya tentang warna atau posisi.\n");
-                 else if(rnd == 1) print_typing(C_RED "Astral > " C_RESET, "Waduh, saya gagal paham. Bisa gunakan kata kunci lain? Contoh: 'hitung merah' atau 'dimana biru'.\n");
-                 else print_typing(C_RED "Astral > " C_RESET, "Input tidak terdefinisi dalam database saya. Coba perintah yang lebih spesifik.\n");
+                 print_glitch("DATA CORRUPTED. COBA LAGI.");
                  continue;
             }
         }
 
         char response[1024] = ""; 
         char prefix[64];
-        int rnd = rand() % 3; 
         
         switch(intent.type) {
-            case INT_GREETING:
-                if(rnd==0) sprintf(response, "Halo! Astral siap membantu. Ada objek tertentu yang ingin kamu cari di gambar ini?");
-                else if(rnd==1) sprintf(response, "Hai! Saya Astral, sedang memantau visual gambar. Mau tanya statistik warna atau jumlah objek?");
-                else sprintf(response, "Selamat datang. Saya Astral. Silakan ajukan pertanyaan tentang gambar.");
+            case INT_GREETING: {
+                int r = rand() % 5;
+                if(r==0) sprintf(response, "Halo! Radar visual aktif dan siap.");
+                else if(r==1) sprintf(response, "Astral online. Siap memproses query visual.");
+                else if(r==2) sprintf(response, "Koneksi stabil. Ada yang bisa saya bantu analisa?");
+                else if(r==3) sprintf(response, "Sistem `Astral` mendengarkan. Silakan.");
+                else sprintf(response, "Hai. Sensor optik saya siap digunakan.");
+                break;
+            }
+
+            case INT_IDENTITY: {
+                int r = rand() % 3;
+                if(r==0) sprintf(response, "Saya Astral. Spesialis computer vision & NLU.");
+                else if(r==1) sprintf(response, "Sistem Astral. Dilengkapi modul Hex Dump dan Radar Visual.");
+                else sprintf(response, "Saya adalah asisten visual digital Anda.");
+                break;
+            }
+
+            case INT_HELP:
+                printf(C_CYAN "=== MENU BANTUAN ASTRAL ===" C_RESET "\n");
+                printf("1. " C_YELLOW "Hitung" C_RESET "   : 'Ada berapa kotak merah?', 'Total objek?'\n");
+                printf("2. " C_YELLOW "Lokasi" C_RESET "   : 'Dimana yang biru?', 'Cari posisi hijau'\n");
+                printf("3. " C_YELLOW "Info" C_RESET "     : 'Jelaskan gambar', 'Statistik warna'\n");
+                printf("4. " C_YELLOW "Sistem" C_RESET "   : 'Cek status', 'Scan ulang', 'Keluar'\n");
+                strcpy(response, "Silakan pilih perintah di atas.");
                 break;
 
-            case INT_IDENTITY:
-                sprintf(response, "Perkenalkan, saya adalah Astral. Saya dilengkapi algoritma Iterative Flood Fill dan Naive Bayes untuk memahami gambar dan bahasamu.");
+            case INT_TIME: {
+                time_t now; time(&now);
+                struct tm *local = localtime(&now);
+                int r = rand() % 3;
+                if(r==0) sprintf(response, "Waktu Sistem: %02d:%02d. Sensor berjalan nominal.", local->tm_hour, local->tm_min);
+                else if(r==1) sprintf(response, "Log Timestamp: %02d:%02d WIB. All systems go.", local->tm_hour, local->tm_min);
+                else sprintf(response, "Sekarang pukul %02d:%02d. Menunggu instruksi selanjutnya.", local->tm_hour, local->tm_min);
                 break;
+            }
+
+            case INT_SCAN: {
+                int r = rand() % 3;
+                if(r==0) printf(C_YELLOW "Menginisialisasi ulang scanner visual..." C_RESET "\n");
+                else if(r==1) printf(C_YELLOW "Re-calibrating optic sensors..." C_RESET "\n");
+                else printf(C_YELLOW "Memperbarui buffer citra..." C_RESET "\n");
+                
+                animate_ascii_scan(img_data, w, h, 1); 
+                
+                if(r==0) sprintf(response, "Scan ulang selesai. Data visual telah diperbarui.");
+                else if(r==1) sprintf(response, "Kalibrasi tuntas. Representasi visual mutakhir.");
+                else sprintf(response, "Buffer refreshed. Siap untuk analisa baru.");
+                break;
+            }
 
             case INT_COUNT:
                 {
@@ -681,44 +901,59 @@ int main(int argc, char *argv[]) {
                     }
 
                     char obj_desc[64] = "objek";
-                    if(intent.entity_color != COLOR_UNKNOWN) sprintf(obj_desc, "objek berwarna %s", COLOR_NAMES[intent.entity_color]);
+                    if(intent.entity_color != COLOR_UNKNOWN) sprintf(obj_desc, "objek %s", COLOR_NAMES[intent.entity_color]);
                     
-                    if(count == 0) {
-                        if(rnd==0) sprintf(response, "Wah, setelah scanning pixel demi pixel, saya tidak menemukan %s sama sekali di sini.", obj_desc);
-                        else sprintf(response, "Nihil. Sensor saya tidak menangkap adanya %s di dalam frame gambar ini.", obj_desc);
-                    } else {
-                        if(rnd==0) sprintf(response, "Sip! Hasil pemindaian menunjukkan ada total %d %s yang terdeteksi.", count, obj_desc);
-                        else if(rnd==1) sprintf(response, "Tertangkap radar! Saya menemukan %d %s yang tersebar di gambar.", count, obj_desc);
-                        else sprintf(response, "Menurut perhitungan saya, terdapat %d %s saat ini.", count, obj_desc);
-                    }
+                    int r = rand() % 4;
+                    if(r==0) sprintf(response, "Hasil scan: %d %s terdeteksi.", count, obj_desc);
+                    else if(r==1) sprintf(response, "Sensor menangkap keberadaan %d %s.", count, obj_desc);
+                    else if(r==2) sprintf(response, "Total kalkulasi: ada %d %s di dalam frame.", count, obj_desc);
+                    else sprintf(response, "Saya menemukan %d %s dalam area pantauan.", count, obj_desc);
                 }
                 break;
 
             case INT_WHERE:
                 if(intent.entity_color == COLOR_UNKNOWN) {
-                    sprintf(response, "Tunggu dulu, objek warna apa yang mau dilacak posisinya? Coba sebutkan warnanya.");
+                    sprintf(response, "Warna apa yang mau ditampilkan di Radar?");
                 } else {
-                    if(rnd==0) sprintf(response, "Oke, mari kita lacak koordinat %s. Berikut data posisinya:", COLOR_NAMES[intent.entity_color]);
-                    else sprintf(response, "Siap. Menampilkan lokasi koordinat X,Y untuk semua objek %s:", COLOR_NAMES[intent.entity_color]);
+                    int r = rand() % 3;
+                    if(r==0) sprintf(response, "Mengaktifkan subsistem radar untuk objek %s...", COLOR_NAMES[intent.entity_color]);
+                    else if(r==1) sprintf(response, "Memplot koordinat objek %s ke layar...", COLOR_NAMES[intent.entity_color]);
+                    else sprintf(response, "Melacak posisi sinyal %s... Visualisasi diaktifkan.", COLOR_NAMES[intent.entity_color]);
                 }
                 break;
 
-            case INT_STATS:
-                if(rnd==0) sprintf(response, "Ini dia laporan statistik distribusi warna yang saya kumpulkan dari gambar:");
-                else sprintf(response, "Membuka database statistik... Berikut persentase area untuk setiap warna:");
+            case INT_STATS: {
+                int r = rand() % 3;
+                if(r==0) sprintf(response, "Membuka log statistik distribusi warna...");
+                else if(r==1) sprintf(response, "Mengakses database visual... Ini data komposisinya.");
+                else sprintf(response, "Menampilkan histogram warna dari citra yang diproses.");
                 break;
+            }
 
-            case INT_SCENE:
-                sprintf(response, "Berdasarkan analisis fitur warna dan objek, saya mengklasifikasikan ini sebagai %s. Alasannya: %s.", SCENE_NAMES[current_scene], scene_reason);
+            case INT_SCENE: {
+                int r = rand() % 3;
+                if(r==0) sprintf(response, "Klasifikasi Scene: %s. (%s)", SCENE_NAMES[current_scene], scene_reason);
+                else if(r==1) sprintf(response, "Analisa lingkungan: %s. Indikator: %s.", SCENE_NAMES[current_scene], scene_reason);
+                else sprintf(response, "Algoritma mendeteksi pola %s berdasarkan %s.", SCENE_NAMES[current_scene], scene_reason);
                 break;
+            }
 
-            case INT_DESCRIBE:
-                sprintf(response, "Secara garis besar, ini adalah gambar %s. Data sensor saya menunjukkan dominasi Hijau %.1f%% dan Biru %.1f%%, dengan total %d objek terpisah.", 
-                    SCENE_NAMES[current_scene], img_features.color_pct[GREEN], img_features.color_pct[BLUE], kb_count);
+            case INT_DESCRIBE: {
+                int r = rand() % 3;
+                if(r==0)
+                    sprintf(response, "Scene %s. Dominasi: Hijau %.1f%%, Biru %.1f%%.", 
+                        SCENE_NAMES[current_scene], img_features.color_pct[GREEN], img_features.color_pct[BLUE]);
+                else if(r==1)
+                    sprintf(response, "Analisa gambar: Tipe %s dengan %d total objek terisolasi.",
+                        SCENE_NAMES[current_scene], kb_count);
+                else
+                    sprintf(response, "Deskripsi singkat: %s. Terdeteksi %d objek mencolok.", 
+                        SCENE_NAMES[current_scene], kb_count);
                 break;
+            }
 
             default:
-                sprintf(response, "Hmm, saya menangkap suara tapi belum paham maksudnya. Bisa diulangi dengan kata lain?");
+                sprintf(response, "Query tidak valid. Coba ulangi.");
         }
 
         if(response[0]) {
@@ -726,20 +961,11 @@ int main(int argc, char *argv[]) {
             print_typing(prefix, response);
             
             if(intent.type == INT_WHERE && intent.entity_color != COLOR_UNKNOWN) {
-                int limit = 0;
-                int found_any = 0;
-                for(int i=0; i<kb_count; i++) {
-                    if(kb_objects[i].color == intent.entity_color) {
-                        printf("       • [%s] ditemukan di koordinat pusat (%d, %d)\n", SIZE_NAMES[kb_objects[i].size_cat], kb_objects[i].cx, kb_objects[i].cy);
-                        found_any = 1;
-                        if(++limit > 5) { printf("       ... (dan %d lainnya)\n", img_features.obj_count[intent.entity_color]-5); break; }
-                        sleep_ms(30);
-                    }
-                }
-                if(!found_any) printf("       (Tidak ada data lokasi karena objek tidak ditemukan)\n");
-            } else if(intent.type == INT_STATS) {
+                draw_radar(intent.entity_color);
+            } 
+            else if(intent.type == INT_STATS) {
                 for(int i=0; i<COLOR_COUNT; i++) {
-                    printf("       • %-6s: %5.2f%% area (Total: %d objek)\n", COLOR_NAMES[i], img_features.color_pct[i], img_features.obj_count[i]);
+                    printf("       • %-6s: %5.2f%% area\n", COLOR_NAMES[i], img_features.color_pct[i]);
                     sleep_ms(30);
                 }
             }
