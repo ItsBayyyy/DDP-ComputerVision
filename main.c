@@ -29,6 +29,19 @@ void sleep_ms(int ms) { Sleep(ms); }
 #define C_BLUE   "\x1b[34m"
 #define C_CYAN   "\x1b[36m"
 #define C_MAGENTA "\x1b[35m"
+#define C_WHITE  "\x1b[37m"
+
+void enable_ansi_support() {
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    DWORD dwMode = 0;
+    GetConsoleMode(hOut, &dwMode);
+    dwMode |= 0x0004; 
+    SetConsoleMode(hOut, dwMode);
+}
+
+void gotoxy(int x, int y) {
+    printf("\x1b[%d;%dH", y, x);
+}
 
 void print_typing(const char *prefix, const char *text) {
     printf("%s", prefix);
@@ -83,6 +96,7 @@ int levenshtein_distance(const char *s1, const char *s2) {
 /* ================= STRUKTUR DATA VISION ================= */
 typedef enum { RED, GREEN, BLUE, YELLOW, COLOR_COUNT, COLOR_UNKNOWN } ColorEnum;
 const char *COLOR_NAMES[] = {"Merah", "Hijau", "Biru", "Kuning"};
+const char *COLOR_ANSI[]  = {C_RED, C_GREEN, C_BLUE, C_YELLOW}; 
 int BOX_COLORS[COLOR_COUNT][3] = {{255,0,0}, {0,255,0}, {0,0,255}, {255,255,0}};
 
 typedef enum { SIZE_SMALL, SIZE_MEDIUM, SIZE_LARGE, SIZE_COUNT } SizeCategory;
@@ -213,6 +227,92 @@ void flood_fill_iterative(int *mask, int *labels, int w, int h, int start_x, int
     free(stack);
 }
 
+/* ================= ASCII ART ANIMATION SYSTEM ================= */
+
+const char *ASCII_CHARS = " .:-=+*#%@";
+
+void animate_ascii_scan(unsigned char *img, int w, int h) {
+    int console_w = 80;
+    int scale_x = w / console_w;
+    if (scale_x < 1) scale_x = 1;
+    int scale_y = scale_x * 2; 
+
+    int console_h = h / scale_y;
+    
+    printf("\n" C_BOLD C_CYAN "=== MEMULAI VISUALISASI DIGITAL ===" C_RESET "\n");
+    sleep_ms(500);
+
+    printf("\x1b[2J\x1b[H"); 
+    
+    int start_row = 2; 
+    
+    int line_delay = (console_h > 0) ? (5000 / console_h) : 10;
+    
+    for (int y = 0; y < console_h; y++) {
+        gotoxy(1, start_row + y); 
+        
+        for (int x = 0; x < console_w; x++) {
+            int img_x = x * scale_x;
+            int img_y = y * scale_y;
+            
+            if (img_x >= w) img_x = w - 1;
+            if (img_y >= h) img_y = h - 1;
+            
+            int idx = (img_y * w + img_x) * 3;
+            unsigned char r = img[idx];
+            unsigned char g = img[idx+1];
+            unsigned char b = img[idx+2];
+            
+            int gray = (int)(0.299*r + 0.587*g + 0.114*b);
+            int char_idx = gray * 9 / 255; 
+            
+            putchar(ASCII_CHARS[char_idx]);
+        }
+        
+        printf(C_GREEN " < SCANNING..." C_RESET);
+        
+        fflush(stdout);
+        sleep_ms(line_delay);
+    }
+    
+    gotoxy(console_w + 2, start_row + console_h - 1);
+    printf("              ");
+
+    gotoxy(1, start_row + console_h + 2);
+    printf(C_YELLOW "Mengidentifikasi Objek..." C_RESET);
+    sleep_ms(1000);
+
+    for (int i = 0; i < kb_count; i++) {
+        int cx_console = kb_objects[i].cx / scale_x;
+        int cy_console = kb_objects[i].cy / scale_y;
+        
+        int x1 = kb_objects[i].min_x / scale_x;
+        int x2 = kb_objects[i].max_x / scale_x;
+        int y1 = kb_objects[i].min_y / scale_y;
+        int y2 = kb_objects[i].max_y / scale_y;
+
+        if (x1 < 0) x1=0; if(x2 >= console_w) x2=console_w-1;
+        
+        int draw_y = start_row + cy_console;
+        int draw_x = cx_console;
+        
+        const char *col_code = COLOR_ANSI[kb_objects[i].color];
+        
+        gotoxy(draw_x, draw_y);
+        printf("%s[%d]" C_RESET, col_code, i+1);
+
+        gotoxy(1, start_row + console_h + 1);
+        printf(C_CYAN "> Deteksi ID #%d: %s (%s) di grid [%d,%d]   " C_RESET, 
+               i+1, COLOR_NAMES[kb_objects[i].color], SIZE_NAMES[kb_objects[i].size_cat], cx_console, cy_console);
+        
+        sleep_ms(600); 
+    }
+
+    gotoxy(1, start_row + console_h + 3);
+    printf(C_GREEN "Visualisasi Selesai." C_RESET "\n");
+    sleep_ms(1000);
+}
+
 /* ================= VISUALIZATION UTILS ================= */
 void set_pixel_safe(unsigned char *img, int w, int h, int x, int y, int r, int g, int b, int thickness) {
     for(int ty = -thickness/2; ty <= thickness/2; ty++) {
@@ -230,8 +330,6 @@ void set_pixel_safe(unsigned char *img, int w, int h, int x, int y, int r, int g
 }
 
 void draw_bounding_boxes(unsigned char *img, int w, int h) {
-    printf(C_YELLOW "\n[VISUALIZATION] Menggambar %d kotak deteksi..." C_RESET "\n", kb_count);
-    
     for(int i=0; i<kb_count; i++) {
         int *col = BOX_COLORS[kb_objects[i].color];
         int x1 = kb_objects[i].min_x;
@@ -258,13 +356,8 @@ void draw_bounding_boxes(unsigned char *img, int w, int h) {
         
         int ret = system("magick result.ppm result.jpg");
         if(ret == 0) {
-            printf(C_GREEN "[VISUALIZATION] Gambar hasil disimpan sebagai 'result.jpg'" C_RESET "\n");
-            remove("result.ppm"); 
-        } else {
-            printf(C_GREEN "[VISUALIZATION] Gambar hasil disimpan sebagai 'result.ppm'" C_RESET "\n");
+            // remove("result.ppm"); 
         }
-    } else {
-        printf(C_RED "[ERROR] Gagal menyimpan file result!" C_RESET "\n");
     }
 }
 
@@ -431,6 +524,8 @@ NLUResult process_input(char *raw_input) {
 /* ================= MAIN PIPELINE ================= */
 int main(int argc, char *argv[]) {
     srand(time(NULL)); 
+    enable_ansi_support(); 
+
     #ifdef _WIN32
         SetConsoleOutputCP(65001);
     #endif
@@ -527,7 +622,9 @@ int main(int argc, char *argv[]) {
         draw_bounding_boxes(img_data, w, h);
     }
 
-    printf("\n" C_BOLD "=== ASTRAL SYSTEM V3 SIAP (" C_GREEN "ONLINE" C_RESET C_BOLD ") ===" C_RESET "\n");
+    animate_ascii_scan(img_data, w, h);
+
+    printf("\n" C_BOLD "=== ASTRAL SYSTEM V4 SIAP (" C_GREEN "ONLINE" C_RESET C_BOLD ") ===" C_RESET "\n");
     printf("Deteksi Awal  : " C_MAGENTA "%s" C_RESET "\n", SCENE_NAMES[current_scene]);
     printf("Status Sensor : %d objek teridentifikasi.\n\n", kb_count);
     printf(C_CYAN "Tips: Coba tanyakan 'Ada berapa benda merah?' atau 'Jelaskan gambar ini'.\n" C_RESET);
