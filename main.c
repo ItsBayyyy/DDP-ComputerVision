@@ -11,10 +11,11 @@ typedef struct {
     int min_area;
     int dilate_iter;
     float confidence_threshold;
+    int with_result; 
     char input_file[256];
 } Config;
 
-Config sys_config = { .min_area = 200, .dilate_iter = 3, .confidence_threshold = 0.5 };
+Config sys_config = { .min_area = 200, .dilate_iter = 3, .confidence_threshold = 0.5, .with_result = 0 };
 
 /* ================= UTILITAS OS & UI ================= */
 #include <windows.h>
@@ -34,7 +35,7 @@ void print_typing(const char *prefix, const char *text) {
     while (*text) {
         putchar(*text++);
         fflush(stdout);
-        sleep_ms(15); 
+        sleep_ms(15);
     }
     printf("\n");
 }
@@ -212,6 +213,61 @@ void flood_fill_iterative(int *mask, int *labels, int w, int h, int start_x, int
     free(stack);
 }
 
+/* ================= VISUALIZATION UTILS ================= */
+void set_pixel_safe(unsigned char *img, int w, int h, int x, int y, int r, int g, int b, int thickness) {
+    for(int ty = -thickness/2; ty <= thickness/2; ty++) {
+        for(int tx = -thickness/2; tx <= thickness/2; tx++) {
+            int ny = y + ty;
+            int nx = x + tx;
+            if(nx >= 0 && nx < w && ny >= 0 && ny < h) {
+                int idx = (ny * w + nx) * 3;
+                img[idx] = r;
+                img[idx+1] = g;
+                img[idx+2] = b;
+            }
+        }
+    }
+}
+
+void draw_bounding_boxes(unsigned char *img, int w, int h) {
+    printf(C_YELLOW "\n[VISUALIZATION] Menggambar %d kotak deteksi..." C_RESET "\n", kb_count);
+    
+    for(int i=0; i<kb_count; i++) {
+        int *col = BOX_COLORS[kb_objects[i].color];
+        int x1 = kb_objects[i].min_x;
+        int y1 = kb_objects[i].min_y;
+        int x2 = kb_objects[i].max_x;
+        int y2 = kb_objects[i].max_y;
+        
+        for(int x=x1; x<=x2; x++) {
+            set_pixel_safe(img, w, h, x, y1, col[0], col[1], col[2], 2);
+            set_pixel_safe(img, w, h, x, y2, col[0], col[1], col[2], 2);
+        }
+
+        for(int y=y1; y<=y2; y++) {
+            set_pixel_safe(img, w, h, x1, y, col[0], col[1], col[2], 2);
+            set_pixel_safe(img, w, h, x2, y, col[0], col[1], col[2], 2);
+        }
+    }
+
+    FILE *fp = fopen("result.ppm", "wb");
+    if(fp) {
+        fprintf(fp, "P6\n%d %d\n255\n", w, h);
+        fwrite(img, 1, w*h*3, fp);
+        fclose(fp);
+        
+        int ret = system("magick result.ppm result.jpg");
+        if(ret == 0) {
+            printf(C_GREEN "[VISUALIZATION] Gambar hasil disimpan sebagai 'result.jpg'" C_RESET "\n");
+            remove("result.ppm"); 
+        } else {
+            printf(C_GREEN "[VISUALIZATION] Gambar hasil disimpan sebagai 'result.ppm'" C_RESET "\n");
+        }
+    } else {
+        printf(C_RED "[ERROR] Gagal menyimpan file result!" C_RESET "\n");
+    }
+}
+
 /* ================= DECISION & ML ================= */
 void run_kmeans_clustering() {
     if(kb_count < 3) return;
@@ -380,12 +436,13 @@ int main(int argc, char *argv[]) {
     #endif
 
     if(argc < 2) {
-        printf("Usage: %s <image.jpg/ppm> [--min-area N]\n", argv[0]);
+        printf("Usage: %s <image.jpg/ppm> [--min-area N] [--with-result]\n", argv[0]);
         return 1;
     }
     strcpy(sys_config.input_file, argv[1]);
     for(int i=2; i<argc; i++) {
         if(strcmp(argv[i], "--min-area")==0) sys_config.min_area = atoi(argv[++i]);
+        if(strcmp(argv[i], "--with-result")==0) sys_config.with_result = 1;
     }
 
     char ppm_file[256] = "temp_proc.ppm";
@@ -466,6 +523,10 @@ int main(int argc, char *argv[]) {
     run_kmeans_clustering();
     classify_scene();
 
+    if(sys_config.with_result) {
+        draw_bounding_boxes(img_data, w, h);
+    }
+
     printf("\n" C_BOLD "=== ASTRAL SYSTEM V3 SIAP (" C_GREEN "ONLINE" C_RESET C_BOLD ") ===" C_RESET "\n");
     printf("Deteksi Awal  : " C_MAGENTA "%s" C_RESET "\n", SCENE_NAMES[current_scene]);
     printf("Status Sensor : %d objek teridentifikasi.\n\n", kb_count);
@@ -498,10 +559,10 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        char response[1024] = "";
+        char response[1024] = ""; 
         char prefix[64];
-        int rnd = rand() % 3;
-
+        int rnd = rand() % 3; 
+        
         switch(intent.type) {
             case INT_GREETING:
                 if(rnd==0) sprintf(response, "Halo! Astral siap membantu. Ada objek tertentu yang ingin kamu cari di gambar ini?");
